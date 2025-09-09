@@ -1,0 +1,89 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from skimage.io import imread_collection
+from skimage.transform import resize
+
+# -----------------------------
+# 1. Load & preprocess dataset
+# -----------------------------
+cats = imread_collection('./data/cats/*.jpg')
+dogs = imread_collection('./data/dogs/*.jpg')
+
+def preprocess(images, size=(32, 32)):
+    X = []
+    for img in images:
+        img_resized = resize(img, size, anti_aliasing=True)
+        X.append(img_resized.flatten())
+    return np.array(X)
+
+X_cats = preprocess(cats)
+X_dogs = preprocess(dogs)
+
+X = np.vstack([X_cats, X_dogs])
+y = np.array([0]*len(X_cats) + [1]*len(X_dogs))  # 0 = cat, 1 = dog
+
+# Standardize features
+X = StandardScaler().fit_transform(X)
+
+# Train/test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+
+# -----------------------------
+# 2. PCA Implementation (from scratch)
+# -----------------------------
+def PCA(X, n_components):
+    # Step 1: Center data
+    X_meaned = X - np.mean(X, axis=0)
+
+    # Step 2: Covariance matrix
+    cov_mat = np.cov(X_meaned, rowvar=False)
+
+    # Step 3: Eigen decomposition
+    eig_vals, eig_vecs = np.linalg.eigh(cov_mat)
+
+    # Step 4: Sort eigenvectors by eigenvalues (descending)
+    sorted_idx = np.argsort(eig_vals)[::-1]
+    eig_vals = eig_vals[sorted_idx]
+    eig_vecs = eig_vecs[:, sorted_idx]
+
+    # Step 5: Select top components
+    components = eig_vecs[:, :n_components]
+
+    # Step 6: Project data
+    X_reduced = np.dot(X_meaned, components)
+    return X_reduced, components
+
+# Apply PCA
+X_train_pca, pca_components = PCA(X_train, n_components=50)  # keep 50 PCs
+X_test_pca = (X_test - np.mean(X_train, axis=0)).dot(pca_components)
+
+
+# -----------------------------
+# 3. Train SVM classifier
+# -----------------------------
+svm = SVC(kernel='linear')  # or 'rbf' for nonlinear
+svm.fit(X_train_pca, y_train)
+y_pred = svm.predict(X_test_pca)
+
+accuracy = np.mean(y_pred == y_test)
+print(f"SVM with PCA (50 comps) Accuracy: {accuracy:.4f}")
+
+
+# -----------------------------
+# 4. Visualize in 2D (optional)
+# -----------------------------
+X_train_pca2, comps2 = PCA(X_train, n_components=2)
+plt.figure(figsize=(8,6))
+plt.scatter(X_train_pca2[y_train==0, 0], X_train_pca2[y_train==0, 1], label="Cats", alpha=0.6)
+plt.scatter(X_train_pca2[y_train==1, 0], X_train_pca2[y_train==1, 1], label="Dogs", alpha=0.6)
+plt.xlabel("PC1")
+plt.ylabel("PC2")
+plt.title("Cats vs Dogs in PCA space (2D)")
+plt.legend()
+plt.show()
